@@ -19,4 +19,5 @@ export const env = {
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY ?? "",
     urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT ?? "",
   },
+  firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? "./secrets/firebase-service-account.json",
 };

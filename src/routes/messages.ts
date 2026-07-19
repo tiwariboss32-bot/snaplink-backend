@@ -86,9 +86,13 @@ messagesRouter.post(
 
     res.status(201).json({ message });
 
-    if (receiver.pushToken) {
-      void sendPushNotification(receiver.pushToken, "New photo", `${message.sender.name} sent you a photo`, {
-        senderId: message.senderId,
+    if (receiver.pushToken && receiver.notificationsEnabled) {
+      void sendPushNotification({
+        userId: receiver.id,
+        pushToken: receiver.pushToken,
+        title: "New photo",
+        body: `${message.sender.name} sent you a photo`,
+        data: { type: "new_message", otherUserId: message.senderId },
       });
     }
   })
@@ -113,6 +117,50 @@ messagesRouter.patch(
     });
 
     res.json({ message: updated });
+  })
+);
+
+const reactionSchema = z.object({
+  emoji: z.string().trim().min(1).max(8).nullable(),
+});
+
+messagesRouter.patch(
+  "/:id/reaction",
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { emoji } = reactionSchema.parse(req.body);
+
+    const message = await prisma.message.findUnique({ where: { id } });
+    if (!message) {
+      throw new HttpError(404, "Message not found");
+    }
+    if (message.receiverId !== req.userId) {
+      throw new HttpError(403, "Only the receiver can react to this photo");
+    }
+
+    const updated = await prisma.message.update({
+      where: { id },
+      data: { reaction: emoji },
+      include: {
+        sender: { select: userPreviewSelect },
+        receiver: { select: userPreviewSelect },
+      },
+    });
+
+    res.json({ message: updated });
+
+    if (emoji) {
+      const sender = await prisma.user.findUnique({ where: { id: message.senderId } });
+      if (sender?.pushToken && sender.notificationsEnabled) {
+        void sendPushNotification({
+          userId: sender.id,
+          pushToken: sender.pushToken,
+          title: "New reaction",
+          body: `${updated.receiver.name} reacted ${emoji} to your photo`,
+          data: { type: "reaction", messageId: updated.id, otherUserId: updated.receiverId },
+        });
+      }
+    }
   })
 );
 

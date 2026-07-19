@@ -15,6 +15,7 @@ model User {
   passwordHash String   @map("password_hash")
   avatarUrl    String?  @map("avatar_url")
   pushToken    String?  @map("push_token")
+  notificationsEnabled Boolean @default(true) @map("notifications_enabled")
   createdAt    DateTime @default(now()) @map("created_at")
 
   sentMessages     Message[] @relation("SentMessages")
@@ -32,6 +33,7 @@ model Message {
   imageHeight  Int?     @map("image_height")
   createdAt    DateTime @default(now()) @map("created_at")
   isSeen       Boolean  @default(false) @map("is_seen")
+  reaction     String?  @map("reaction")
 
   sender   User @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
   receiver User @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)

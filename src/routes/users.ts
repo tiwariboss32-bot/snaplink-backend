@@ -18,7 +18,10 @@ const userSelect = {
 usersRouter.get(
   "/me",
   asyncHandler(async (req, res) => {
-    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: userSelect });
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { ...userSelect, notificationsEnabled: true },
+    });
     res.json({ user });
   })
 );
@@ -32,6 +35,19 @@ usersRouter.patch(
   asyncHandler(async (req, res) => {
     const { pushToken } = pushTokenSchema.parse(req.body);
     await prisma.user.update({ where: { id: req.userId }, data: { pushToken } });
+    res.status(204).send();
+  })
+);
+
+const notificationsSchema = z.object({
+  enabled: z.boolean(),
+});
+
+usersRouter.patch(
+  "/me/notifications",
+  asyncHandler(async (req, res) => {
+    const { enabled } = notificationsSchema.parse(req.body);
+    await prisma.user.update({ where: { id: req.userId }, data: { notificationsEnabled: enabled } });
     res.status(204).send();
   })
 );
