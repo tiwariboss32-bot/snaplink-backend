@@ -49,12 +49,17 @@ messagesRouter.get(
   })
 );
 
-const createMessageSchema = z.object({
-  receiverId: z.string().uuid(),
-  imageUrl: z.string().url(),
-  imageWidth: z.number().int().positive().optional(),
-  imageHeight: z.number().int().positive().optional(),
-});
+const createMessageSchema = z
+  .object({
+    receiverId: z.string().uuid(),
+    imageUrl: z.string().url().optional(),
+    imageWidth: z.number().int().positive().optional(),
+    imageHeight: z.number().int().positive().optional(),
+    text: z.string().trim().min(1).max(1000).optional(),
+  })
+  .refine((data) => Boolean(data.imageUrl) !== Boolean(data.text), {
+    message: "Provide either imageUrl or text, not both",
+  });
 
 messagesRouter.post(
   "/",
@@ -77,6 +82,7 @@ messagesRouter.post(
         imageUrl: body.imageUrl,
         imageWidth: body.imageWidth,
         imageHeight: body.imageHeight,
+        text: body.text,
       },
       include: {
         sender: { select: userPreviewSelect },
@@ -90,8 +96,8 @@ messagesRouter.post(
       void sendPushNotification({
         userId: receiver.id,
         pushToken: receiver.pushToken,
-        title: "New photo",
-        body: `${message.sender.name} sent you a photo`,
+        title: message.text ? message.sender.name : "New photo",
+        body: message.text ? message.text : `${message.sender.name} sent you a photo`,
         data: { type: "new_message", otherUserId: message.senderId },
       });
     }
@@ -135,7 +141,7 @@ messagesRouter.patch(
       throw new HttpError(404, "Message not found");
     }
     if (message.receiverId !== req.userId) {
-      throw new HttpError(403, "Only the receiver can react to this photo");
+      throw new HttpError(403, "Only the receiver can react to this message");
     }
 
     const updated = await prisma.message.update({
@@ -156,8 +162,55 @@ messagesRouter.patch(
           userId: sender.id,
           pushToken: sender.pushToken,
           title: "New reaction",
-          body: `${updated.receiver.name} reacted ${emoji} to your photo`,
+          body: `${updated.receiver.name} reacted ${emoji} to your message`,
           data: { type: "reaction", messageId: updated.id, otherUserId: updated.receiverId },
+        });
+      }
+    }
+  })
+);
+
+const replySchema = z.object({
+  text: z.string().trim().min(1).max(500).nullable(),
+});
+
+// A hidden reply attached to the message itself (like a reaction, but text) -
+// only the receiver can set it, and it stays hidden from the list view until
+// the recipient taps to reveal it.
+messagesRouter.patch(
+  "/:id/reply",
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { text } = replySchema.parse(req.body);
+
+    const message = await prisma.message.findUnique({ where: { id } });
+    if (!message) {
+      throw new HttpError(404, "Message not found");
+    }
+    if (message.receiverId !== req.userId) {
+      throw new HttpError(403, "Only the receiver can reply to this message");
+    }
+
+    const updated = await prisma.message.update({
+      where: { id },
+      data: { replyText: text },
+      include: {
+        sender: { select: userPreviewSelect },
+        receiver: { select: userPreviewSelect },
+      },
+    });
+
+    res.json({ message: updated });
+
+    if (text) {
+      const sender = await prisma.user.findUnique({ where: { id: message.senderId } });
+      if (sender?.pushToken && sender.notificationsEnabled) {
+        void sendPushNotification({
+          userId: sender.id,
+          pushToken: sender.pushToken,
+          title: "New reply",
+          body: `${updated.receiver.name} replied to your photo`,
+          data: { type: "reply", messageId: updated.id, otherUserId: updated.receiverId },
         });
       }
     }
