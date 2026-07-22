@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { HttpError } from "../middleware/errorHandler";
 import { asyncHandler } from "../utils/asyncHandler";
 import { signToken } from "../utils/jwt";
+import { createRefreshToken, revokeRefreshToken, rotateRefreshToken } from "../utils/refreshToken";
 
 export const authRouter = Router();
 
@@ -39,8 +40,10 @@ authRouter.post(
     });
 
     const token = signToken({ userId: user.id });
+    const refreshToken = await createRefreshToken(user.id);
     res.status(201).json({
       token,
+      refreshToken,
       user: { id: user.id, name: user.name, username: user.username, email: user.email, avatarUrl: user.avatarUrl },
     });
   })
@@ -67,9 +70,39 @@ authRouter.post(
     }
 
     const token = signToken({ userId: user.id });
+    const refreshToken = await createRefreshToken(user.id);
     res.json({
       token,
+      refreshToken,
       user: { id: user.id, name: user.name, username: user.username, email: user.email, avatarUrl: user.avatarUrl },
     });
+  })
+);
+
+const refreshSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+
+authRouter.post(
+  "/refresh",
+  asyncHandler(async (req, res) => {
+    const { refreshToken } = refreshSchema.parse(req.body);
+
+    const rotated = await rotateRefreshToken(refreshToken);
+    if (!rotated) {
+      throw new HttpError(401, "Invalid or expired refresh token");
+    }
+
+    const token = signToken({ userId: rotated.userId });
+    res.json({ token, refreshToken: rotated.token });
+  })
+);
+
+authRouter.post(
+  "/logout",
+  asyncHandler(async (req, res) => {
+    const { refreshToken } = refreshSchema.parse(req.body);
+    await revokeRefreshToken(refreshToken);
+    res.status(204).send();
   })
 );
